@@ -1,6 +1,7 @@
 [package]
-name = "protocol-stack-rust"
+name = "rps"
 version = "0.1.0"
 edition = "2024"
+description = "Rust Protocol Stack"
 
 [dependencies]
