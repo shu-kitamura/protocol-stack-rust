@@ -1,4 +1,5 @@
 mod platform;
+mod sched;
 mod timer;
 
 use platform::{platform_init, platform_run, platform_shutdown};
