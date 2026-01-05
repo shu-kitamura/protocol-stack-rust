@@ -3,6 +3,10 @@
 //! This module provides platform-specific functionality corresponding to
 //! microps/platform/linux/platform.c
 
+pub mod intr;
+pub mod sched;
+pub mod timer;
+
 use std::sync::{Mutex, MutexGuard};
 
 use rand::Rng;

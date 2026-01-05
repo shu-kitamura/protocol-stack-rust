@@ -1,11 +1,8 @@
-mod intr;
 mod platform;
-mod sched;
-mod timer;
 
-use intr::{InterruptManager, irq, flags};
+use platform::intr::{InterruptManager, irq, flags};
 use platform::{platform_init, platform_run, platform_shutdown};
-use timer::TimerManager;
+use platform::timer::TimerManager;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
