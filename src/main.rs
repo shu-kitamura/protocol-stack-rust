@@ -1,11 +1,9 @@
-mod intr;
 mod platform;
-mod sched;
-mod timer;
+mod net;
 
-use intr::{InterruptManager, irq, flags};
-use platform::{platform_init, platform_run, platform_shutdown};
-use timer::TimerManager;
+use platform::intr::{InterruptManager, irq, flags};
+use platform::timer::TimerManager;
+use net::{net_init, net_run, net_shutdown};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -14,15 +12,10 @@ fn main() {
     // Initialize logger
     env_logger::init();
 
-    println!("Initializing platform...");
-    
-    if let Err(e) = platform_init() {
-        eprintln!("Failed to initialize platform: {}", e);
+    if let Err(e) = net_init() {
+        eprintln!("Network initialization failed: {}", e);
         return;
     }
-    
-    println!("Platform initialized successfully");
-    println!("Random u16: {}", platform::random16());
 
     // Timer demo
     println!("\n--- Timer Demo ---");
@@ -84,16 +77,15 @@ fn main() {
         irq_counter.load(Ordering::SeqCst)
     );
     println!("--- End Interrupt Demo ---\n");
+    
+    if let Err(e) = net_run() {
+        eprintln!("Network run failed: {}", e);
+        return;
+    }
+    if let Err(e) = net_shutdown() {
+        eprintln!("Network shutdown failed: {}", e);
+        return;
+    }
 
-    if let Err(e) = platform_run() {
-        eprintln!("Failed to run platform: {}", e);
-        return;
-    }
-    
-    if let Err(e) = platform_shutdown() {
-        eprintln!("Failed to shutdown platform: {}", e);
-        return;
-    }
-    
     println!("Platform shutdown complete");
 }
