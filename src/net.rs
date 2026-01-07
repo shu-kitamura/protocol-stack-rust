@@ -4,6 +4,79 @@ use crate::platform::{platform_init, platform_run, platform_shutdown};
 
 pub type Result<T> = std::result::Result<T, String>;
 
+const NetDeviceAddrMaxLen: usize = 16;
+
+pub enum NetDeviceType {
+    Dummy  = 0x0000,
+    Loopback = 0x0001,
+    Ethernet = 0x0002,
+}
+
+pub enum NetDeviceFlag {
+    Up          = 0x0001,
+    Loopback    = 0x0010,
+    Broadcast   = 0x0020,
+    P2P         = 0x0040,
+    NeedARP     = 0x0100,
+}
+
+pub struct NetDevices {
+    devices: Vec<NetDevice>,
+}
+
+impl NetDevices {
+    pub fn new() -> Self {
+        NetDevices {
+            devices: Vec::new(),
+        }
+    }
+
+    pub fn net_device_register(&mut self, mut device: NetDevice) -> Result<()> {
+        device.index = self.devices.len() as u32;
+        device.name = format!("eth{}", device.index);
+
+        self.devices.push(device);
+        Ok(())
+    }
+}
+
+pub struct NetDevice {
+    index: u32,
+    name: String,
+    type_id: NetDeviceType,
+    mtu: u16,
+    flags: u8,
+    hlen: u8,
+    alen: u8,
+    addr: [u8; NetDeviceAddrMaxLen],
+    broadcast_addr: [u8; NetDeviceAddrMaxLen],
+}
+
+impl NetDevice {
+    pub fn new() -> Self {
+        NetDevice {
+            index: 0,
+            name: String::new(),
+            type_id: NetDeviceType::Ethernet,
+            mtu: 1500,
+            flags: 0,
+            hlen: 6,
+            alen: 6,
+            addr: [0; NetDeviceAddrMaxLen],
+            broadcast_addr: [0xFF; NetDeviceAddrMaxLen],
+        }
+    }
+
+    pub fn open(&mut self) -> Result<()> {
+        self.flags = self.flags | NetDeviceFlag::Up as u8;
+        Ok(())
+    }
+
+    pub fn close(&mut self) -> Result<()> {
+        self.flags = self.flags & !(NetDeviceFlag::Up as u8);
+        Ok(())
+    }
+}
 
 pub fn net_init() -> Result<()> {
     println!("Initializing network stack...");
@@ -19,11 +92,16 @@ pub fn net_init() -> Result<()> {
     }
 }
 
-pub fn net_run() -> Result<()> {
+pub fn net_run(net_devices: &mut NetDevices) -> Result<()> {
     println!("Starting network stack...");
     match platform_run() {
         Ok(_) => {
-            println!("Network stack is running.");
+            for device in net_devices.devices.iter_mut() {
+                match device.open() {
+                    Err(e) => eprintln!("Failed to open device {}: {}", device.name, e),
+                    Ok(_) => println!("Device {} is now up.", device.name),
+                }
+            }
             Ok(())
         }
         Err(e) => {
@@ -33,11 +111,17 @@ pub fn net_run() -> Result<()> {
     }
 }
 
-pub fn net_shutdown() -> Result<()> {
+pub fn net_shutdown(net_devices: &mut NetDevices) -> Result<()> {
     println!("Shutting down network stack...");
     match platform_shutdown() {
         Ok(_) => {
             println!("Network stack shutdown successfully.");
+            for device in net_devices.devices.iter_mut() {
+                match device.close() {
+                    Err(e) => eprintln!("Failed to close device {}: {}", device.name, e),
+                    Ok(_) => println!("Device {} is now down.", device.name),
+                }
+            }
             Ok(())
         }
         Err(e) => {

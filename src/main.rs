@@ -77,12 +77,16 @@ fn main() {
         irq_counter.load(Ordering::SeqCst)
     );
     println!("--- End Interrupt Demo ---\n");
+
+    let mut net_devices = net::NetDevices::new();
+    let device = net::NetDevice::new();
+    net_devices.net_device_register(device).expect("Failed to register device");
     
-    if let Err(e) = net_run() {
+    if let Err(e) = net_run(&mut net_devices) {
         eprintln!("Network run failed: {}", e);
         return;
     }
-    if let Err(e) = net_shutdown() {
+    if let Err(e) = net_shutdown(&mut net_devices) {
         eprintln!("Network shutdown failed: {}", e);
         return;
     }
