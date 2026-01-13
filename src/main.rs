@@ -1,5 +1,6 @@
 mod platform;
 mod net;
+mod driver;
 
 use platform::intr::{InterruptManager, irq, flags};
 use platform::timer::TimerManager;
