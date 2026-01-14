@@ -24,6 +24,14 @@ pub struct NetDevices {
     devices: Vec<NetDevice>,
 }
 
+pub trait NetDeviceOps {
+    // Placeholder for network device operations
+    fn init(&self) -> Result<()>;
+    
+    fn output(&self, data: &[u8]) -> Result<()>;
+
+}
+
 impl NetDevices {
     pub fn new() -> Self {
         NetDevices {
@@ -50,6 +58,8 @@ pub struct NetDevice {
     alen: u8,
     addr: [u8; NetDeviceAddrMaxLen],
     broadcast_addr: [u8; NetDeviceAddrMaxLen],
+    net_device_ops: Option<Box<dyn NetDeviceOps>>,
+    void_ptr: Option<*mut ()>,
 }
 
 impl NetDevice {
@@ -64,6 +74,8 @@ impl NetDevice {
             alen: 6,
             addr: [0; NetDeviceAddrMaxLen],
             broadcast_addr: [0xFF; NetDeviceAddrMaxLen],
+            net_device_ops: None,
+            void_ptr: None,
         }
     }
 
