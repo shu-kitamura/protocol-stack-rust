@@ -6,6 +6,70 @@ pub type Result<T> = std::result::Result<T, String>;
 
 const NetDeviceAddrMaxLen: usize = 16;
 
+pub struct ProtocolStack {
+    protocols: Vec<NetProtocol>,
+}
+
+impl ProtocolStack {
+    pub fn new() -> Self {
+        let mut protocols: Vec<NetProtocol> = Vec::new();
+
+        // register IP protocol
+        crate::ip::ip_init(&mut protocols).expect("Failed to initialize IP protocol");
+
+        ProtocolStack {
+            protocols,
+        }
+    }
+
+    pub fn register_protocol(&mut self, protocol: NetProtocol) -> Result<()> {
+        // Check for duplicate protocol types
+        for p in &self.protocols {
+            if p.protocol_type == protocol.protocol_type {
+                return Err(format!(
+                    "Protocol type {:?} is already registered",
+                    protocol.protocol_type
+                ));
+            }
+        }
+        self.protocols.push(protocol);
+        Ok(())
+    }
+
+    pub fn handle_input(&self, protocol_type: NetProtocolType, data: &[u8]) -> Result<()> {
+        for protocol in &self.protocols {
+            if protocol.protocol_type == protocol_type {
+                (protocol.handler)(data)?;
+                return Ok(());
+            }
+        }
+        Err(format!("No handler registered for protocol type {:?}", protocol_type))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetProtocolType {
+    IPv4 = 0x0800,
+    ARP  = 0x0806,
+    RARP = 0x8035,
+    IPv6 = 0x86dd,
+}
+
+pub struct NetProtocol {
+    // Fields for network protocol
+    protocol_type: NetProtocolType,
+    handler: fn(&[u8]) -> Result<()>,
+}
+
+impl NetProtocol {
+    pub fn new(protocol_type: NetProtocolType, handler: fn(&[u8]) -> Result<()>) -> Self {
+        NetProtocol {
+            protocol_type,
+            handler,
+        }
+    }
+}
+
 pub enum NetDeviceType {
     Dummy  = 0x0000,
     Loopback = 0x0001,
