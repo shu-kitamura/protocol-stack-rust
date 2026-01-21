@@ -84,6 +84,20 @@ pub enum NetDeviceFlag {
     NeedARP     = 0x0100,
 }
 
+/// ネットワークインタフェースファミリ
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetIfaceFamily {
+    IP = 1,
+    IPv6 = 2,
+}
+
+/// ネットワークインタフェース (抽象基底)
+pub trait NetIface {
+    fn family(&self) -> NetIfaceFamily;
+    fn dev(&self) -> Option<&NetDevice>;
+    fn set_dev(&mut self, dev_index: u32);
+}
+
 pub struct NetDevices {
     devices: Vec<NetDevice>,
 }
@@ -124,6 +138,8 @@ pub struct NetDevice {
     broadcast_addr: [u8; NetDeviceAddrMaxLen],
     net_device_ops: Option<Box<dyn NetDeviceOps>>,
     void_ptr: Option<*mut ()>,
+    /// インタフェースのインデックスリスト (ファミリごとに1つ)
+    iface_indices: Vec<(NetIfaceFamily, usize)>,
 }
 
 impl NetDevice {
@@ -140,7 +156,39 @@ impl NetDevice {
             broadcast_addr: [0xFF; NetDeviceAddrMaxLen],
             net_device_ops: None,
             void_ptr: None,
+            iface_indices: Vec::new(),
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    /// インタフェースを追加 (ファミリごとに1つのみ)
+    pub fn add_iface(&mut self, family: NetIfaceFamily, iface_index: usize) -> Result<()> {
+        // 同じファミリのインタフェースが既に存在するかチェック
+        for (f, _) in &self.iface_indices {
+            if *f == family {
+                return Err(format!("already exists, dev={}, family={:?}", self.name, family));
+            }
+        }
+        self.iface_indices.push((family, iface_index));
+        log::info!("iface added: dev={}, family={:?}", self.name, family);
+        Ok(())
+    }
+
+    /// 指定ファミリのインタフェースインデックスを取得
+    pub fn get_iface_index(&self, family: NetIfaceFamily) -> Option<usize> {
+        for (f, idx) in &self.iface_indices {
+            if *f == family {
+                return Some(*idx);
+            }
+        }
+        None
     }
 
     pub fn open(&mut self) -> Result<()> {
