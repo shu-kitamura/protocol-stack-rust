@@ -1,6 +1,8 @@
-use crate::net::{NetProtocol, NetProtocolType, ProtocolStack, Result};
-use log::{debug, error};
+use crate::net::{NetDevice, NetIfaceFamily, NetProtocol, NetProtocolType, ProtocolStack, Result};
+use log::{debug, error, info};
 use std::net::Ipv4Addr;
+use std::sync::Mutex;
+use std::str::FromStr;
 
 // IP バージョン
 pub const IP_VERSION_IPV4: u8 = 4;
@@ -26,6 +28,96 @@ pub const IP_HDR_OFFSET_MASK: u16 = 0x1fff;
 // 特殊IPアドレス
 pub const IP_ADDR_ANY: u32 = 0x00000000;       // 0.0.0.0
 pub const IP_ADDR_BROADCAST: u32 = 0xffffffff; // 255.255.255.255
+
+/// IPインタフェース
+#[derive(Debug, Clone)]
+pub struct IpIface {
+    /// 所属デバイスのインデックス
+    dev_index: Option<u32>,
+    /// ユニキャストアドレス
+    pub unicast: Ipv4Addr,
+    /// ネットマスク
+    pub netmask: Ipv4Addr,
+    /// ブロードキャストアドレス
+    pub broadcast: Ipv4Addr,
+}
+
+impl IpIface {
+    /// 新しいIPインタフェースを作成
+    pub fn new(unicast: Ipv4Addr, netmask: Ipv4Addr) -> Self {
+        // broadcast = (unicast & netmask) | ~netmask
+        let unicast_bits: u32 = unicast.into();
+        let netmask_bits: u32 = netmask.into();
+        let broadcast_bits = (unicast_bits & netmask_bits) | !netmask_bits;
+
+        IpIface {
+            dev_index: None,
+            unicast,
+            netmask,
+            broadcast: Ipv4Addr::from(broadcast_bits),
+        }
+    }
+
+    /// 文字列からIPインタフェースを作成
+    pub fn alloc(unicast: &str, netmask: &str) -> Result<Self> {
+        let unicast_addr = Ipv4Addr::from_str(unicast)
+            .map_err(|_| format!("invalid unicast address: {}", unicast))?;
+        let netmask_addr = Ipv4Addr::from_str(netmask)
+            .map_err(|_| format!("invalid netmask: {}", netmask))?;
+
+        Ok(IpIface::new(unicast_addr, netmask_addr))
+    }
+
+    pub fn dev_index(&self) -> Option<u32> {
+        self.dev_index
+    }
+
+    pub fn set_dev_index(&mut self, index: u32) {
+        self.dev_index = Some(index);
+    }
+}
+
+/// グローバルIPインタフェースリスト
+static IP_IFACES: Mutex<Vec<IpIface>> = Mutex::new(Vec::new());
+
+/// IPインタフェースをデバイスに登録
+pub fn ip_iface_register(dev: &mut NetDevice, mut iface: IpIface) -> Result<usize> {
+    info!(
+        "dev={}, unicast={}, netmask={}, broadcast={}",
+        dev.name(),
+        iface.unicast,
+        iface.netmask,
+        iface.broadcast
+    );
+
+    let mut ifaces = IP_IFACES.lock().map_err(|e| format!("lock error: {}", e))?;
+    let iface_index = ifaces.len();
+
+    // デバイスにインタフェースを追加
+    dev.add_iface(NetIfaceFamily::IP, iface_index)?;
+    iface.set_dev_index(dev.index());
+
+    ifaces.push(iface);
+    Ok(iface_index)
+}
+
+/// 指定アドレスを持つIPインタフェースを検索
+pub fn ip_iface_select(addr: Ipv4Addr) -> Option<IpIface> {
+    let ifaces = IP_IFACES.lock().ok()?;
+    for iface in ifaces.iter() {
+        if iface.unicast == addr {
+            return Some(iface.clone());
+        }
+    }
+    None
+}
+
+/// デバイスに関連付けられたIPインタフェースを取得
+pub fn ip_iface_get(dev: &NetDevice) -> Option<IpIface> {
+    let iface_index = dev.get_iface_index(NetIfaceFamily::IP)?;
+    let ifaces = IP_IFACES.lock().ok()?;
+    ifaces.get(iface_index).cloned()
+}
 
 /// インターネットチェックサム (RFC 1071)
 pub fn cksum16(data: &[u8], init: u32) -> u16 {
@@ -197,8 +289,8 @@ pub fn ip_init(protocols: &mut Vec<NetProtocol>) -> Result<()> {
     Ok(())
 }
 
-fn ip_input(data: &[u8], dev_name: &str) -> Result<()> {
-    debug!("dev={}, len={}", dev_name, data.len());
+fn ip_input(data: &[u8], dev: &NetDevice) -> Result<()> {
+    debug!("dev={}, len={}", dev.name(), data.len());
 
     // 最小ヘッダサイズチェック
     if data.len() < IP_HDR_SIZE_MIN {
@@ -242,6 +334,30 @@ fn ip_input(data: &[u8], dev_name: &str) -> Result<()> {
         return Err("fragments does not support".into());
     }
 
+    // インタフェースチェック
+    let iface = match ip_iface_get(dev) {
+        Some(iface) => iface,
+        None => {
+            // インタフェースがない場合は無視
+            return Ok(());
+        }
+    };
+
+    // 宛先アドレスチェック
+    let dst = hdr.dst_addr();
+    let dst_bits: u32 = dst.into();
+    let iface_unicast_bits: u32 = iface.unicast.into();
+    let iface_broadcast_bits: u32 = iface.broadcast.into();
+
+    if dst_bits != iface_unicast_bits {
+        // ユニキャストアドレスでない場合、ブロードキャストかチェック
+        if dst_bits != iface_broadcast_bits && dst_bits != IP_ADDR_BROADCAST {
+            // 他のホスト宛のパケットは無視
+            return Ok(());
+        }
+    }
+
+    debug!("permit, dev={}, iface={}", dev.name(), iface.unicast);
     ip_print(&data[..total]);
 
     Ok(())
